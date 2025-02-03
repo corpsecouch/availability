@@ -96,12 +96,79 @@ def calc_busy_time_for_day(events):
     return rval
 
 
+def calc_avail_for_day(date, earliest_time, latest_time, tz, smallest, events):
+    # make sure the dates and times are adjusted for the timezone
+    earliest = datetime.combine(date=date, time=earliest_time, tzinfo=tz)
+    latest = datetime.combine(date=date, time=latest_time, tzinfo=tz)
+
+    availability = []
+    zero_time = timedelta(hours=0, minutes=0, seconds=0)
+
+    # turn the events list into a linked list
+    prev_event = None
+    for event in events:
+        if prev_event:
+            prev_event.update({'next': event})
+            event.update({'prev': prev_event})
+        prev_event = event
+
+    # calculate how much time is busy
+    busy_time = calc_busy_time_for_day(events)
+
+    # calculate how much potential availability window there is
+    window_time = latest - earliest
+
+    # there's no availabiltity for the day if the busy_time = window_time
+    if window_time == busy_time:
+        return availability
+    
+    # when there are no events
+    if busy_time == zero_time:
+        availability.append(createSlot(earliest, latest))
+    
+    # build the list of availability between events
+    for event in events:
+        event_start = event.get('start')
+        event_start = datetime.fromisoformat(event_start).replace(tzinfo=tz)
+
+        event_end = event.get('end')
+        event_end = datetime.fromisoformat(event_end).replace(tzinfo=tz)
+
+        prev_event = event.get('prev')
+        next_event = event.get('next')
+
+        if prev_event:
+            prev_end = datetime.fromisoformat(prev_event.get('end'))
+            diff = event_start - prev_end
+            if diff >= smallest:
+                availability.append(createSlot(prev_end, event_start))
+
+        else:
+            diff = event_start - earliest
+
+            if diff > zero_time:
+                if event_start-earliest >= smallest:
+                    availability.append(createSlot(earliest, event_start))
+            else:
+                if latest - event_end >= smallest:
+                    availability.append(createSlot(event_end, latest))
+        
+        if not next_event:
+            if latest - event_end >= smallest:
+                availability.append(createSlot(event_end, latest))
+
+    return availability
+
+
 # returns the availablilty for a single date
 def get_availablity_for_day(service, date, earliest_time, latest_time, tz, smallest):
     earliest = datetime.combine(date=date, time=earliest_time, tzinfo=tz)
     latest = datetime.combine(date=date, time=latest_time, tzinfo=tz)
 
     events = get_busy_events(service, [earliest, latest], tz)
+
+    rval = calc_avail_for_day(date, earliest_time, latest_time, tz, smallest, events)
+    return rval
 
     availability = []
     zero_time = timedelta(hours=0, minutes=0, seconds=0)
@@ -201,46 +268,37 @@ def format_slots(availability):
 
 
 def get_availability(service, date_range, earliest_time, latest_time, tz, smallest):
+
     dates = [
         datetime.combine(date=date_range[0], time=earliest_time, tzinfo=tz),
-        datetime.combine(date=date_range[1], time=latest_time, tzinfo=tz)
+        datetime.combine(date=date_range[len(date_range)-1], time=latest_time, tzinfo=tz)
     ]
 
-    busy_events = get_busy_events(service, dates, tz)
+    # get all the busy events from the calendar for the range of dates
+    events = get_busy_events(service, dates, tz)
 
-    for event in busy_events:
-        print('busy event:', event)
-
-
-# returns a list of availability for the list of dates
-def get_availability_for_days(service, date_range, earliest_time, latest_time, tz, smallest):
     availability = []
 
+    # build the list of availability for each date
     for date in date_range:
-        avail = get_availablity_for_day(service, date, earliest_time, latest_time, tz, smallest)
+        # filter the busy events for any that start or end on the date
+        # https://stackoverflow.com/questions/61577168/filter-array-of-objects-in-python
+        filtered_events = list(filter(lambda p: datetime.fromisoformat(p['start']).date() == date or datetime.fromisoformat(p['end']).date() == date, events))
+
+        # calculate the availability for the day
+        avail = calc_avail_for_day(date, earliest_time, latest_time, tz, smallest, filtered_events)
+
         availability.append({
             'date': date,
             'slots': avail
         })
-
+    
     return availability
-
-
-# def get_date_range(date, num, weekends):
-#     dates = []
-#     next = 0
-#     while len(dates) < num:
-#         next_date = date + timedelta(days=next)
-#         if next_date.weekday() < 5:
-#             dates.append(next_date)
-#         elif weekends:
-#             dates.append(next_date)
-#         next += 1
-#     return dates
 
 
 def is_US_timezone(item):
     return item.find('US/') >= 0
+
 
 def main():
     st.title('Google Calendar Availability')
@@ -274,8 +332,8 @@ def main():
 
         with col1:
             date_range = st.date_input(label="Dates", value=[date, date + timedelta(days=7)])
-            include_weekends = st.toggle('Hide Weekends')
-            hide_empty = st.toggle("Hide Empty Days")
+            include_weekends = st.toggle('Ignore Weekends')
+            hide_empty = st.toggle("Hide Unavailable Days")
         
         
         # expand the date range to be an explicit list
@@ -287,9 +345,7 @@ def main():
             next_date = date_range_start + timedelta(days=next)
             dates.append(next_date)
 
-
         # get availability
-        # days = get_availability_for_days(service, dates, earliest, latest, time_zone, timedelta(hours=at_least.hour, minutes=at_least.minute, seconds=at_least.second))
         days = get_availability(service, dates, earliest, latest, time_zone, timedelta(hours=at_least.hour, minutes=at_least.minute, seconds=at_least.second))
 
         st.divider()
