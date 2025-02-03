@@ -20,28 +20,44 @@ def get_google_calendar_service():
     creds = None
     # The file token.pickle stores the user's access and refresh tokens
     if os.path.exists('token.pickle'):
-        print("five")
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
     
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
-        print("one")
-        if creds and creds.expired and creds.refresh_token:
-            print("before")
-            creds.refresh(Request())
-            print("after")
-        else:
-            print("four")
-            flow = InstalledAppFlow.from_client_secrets_file(
+        # print("creds don't exist or are not valid")
+        # print("creds:", creds)
+        # print("valid:", creds.valid)
+
+        flow = InstalledAppFlow.from_client_secrets_file(
                 'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
+        creds = flow.run_local_server(port=0)
+        
+        # if creds and creds.expired and creds.refresh_token:
+        #     print("creds are expired")
+        #     print('valid:', creds.valid)
+        #     print('expired:', creds.expired)
+        #     print('refresh_token:', creds.refresh_token)
+        #     print('token_uri:', creds.token_uri)
+        #     print('client_id:', creds.client_id)
+        #     print('client_secret:', creds.client_secret)
+        #     print('scopes:', creds.scopes)
+
+        #     print("refresh the token")
+        #     req = Request()
+        #     print(req)
+        #     val = creds.refresh(Request())
+        #     print(val)
+        #     print("after")
+        # else:
+        #     print("four")
+        #     flow = InstalledAppFlow.from_client_secrets_file(
+        #         'credentials.json', SCOPES)
+        #     creds = flow.run_local_server(port=0)
         
         # Save the credentials for the next run
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
-    else:
-        print("two")
 
     return build('calendar', 'v3', credentials=creds)
 
@@ -193,7 +209,7 @@ def get_availability(service, date_range, earliest_time, latest_time, tz, smalle
     busy_events = get_busy_events(service, dates, tz)
 
     for event in busy_events:
-        print(event)
+        print('busy event:', event)
 
 
 # returns a list of availability for the list of dates

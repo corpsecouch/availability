@@ -13,4 +13,4 @@
 6. Save the downloaded file as credentials.json in the same directory as your script
 
 ## Running the App
-``` streamlit run google_calendar_availability.py ```
+``` streamlit run availability.py ```
