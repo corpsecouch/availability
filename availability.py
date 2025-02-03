@@ -12,6 +12,8 @@ import copy
 # If modifying these SCOPES, delete the file token.pickle.
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
+# https://google-auth.readthedocs.io/en/stable/reference/google.oauth2.credentials.html
+# https://google-auth.readthedocs.io/en/master/reference/google.auth.transport.requests.html
 def get_google_calendar_service():
     """
     Authenticate and create a Google Calendar service object.
@@ -29,9 +31,11 @@ def get_google_calendar_service():
         # print("creds:", creds)
         # print("valid:", creds.valid)
 
-        flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-        creds = flow.run_local_server(port=0)
+        if creds.expired:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        else:
+            creds.refresh(Request())
         
         # if creds and creds.expired and creds.refresh_token:
         #     print("creds are expired")
@@ -160,71 +164,6 @@ def calc_avail_for_day(date, earliest_time, latest_time, tz, smallest, events):
     return availability
 
 
-# returns the availablilty for a single date
-def get_availablity_for_day(service, date, earliest_time, latest_time, tz, smallest):
-    earliest = datetime.combine(date=date, time=earliest_time, tzinfo=tz)
-    latest = datetime.combine(date=date, time=latest_time, tzinfo=tz)
-
-    events = get_busy_events(service, [earliest, latest], tz)
-
-    rval = calc_avail_for_day(date, earliest_time, latest_time, tz, smallest, events)
-    return rval
-
-    availability = []
-    zero_time = timedelta(hours=0, minutes=0, seconds=0)
-
-    # turn the events list into a linked list
-    prev_event = None
-    for event in events:
-        if prev_event:
-            prev_event.update({'next': event})
-            event.update({'prev': prev_event})
-        prev_event = event
-
-    # calculate how much time is busy
-    busy_time = calc_busy_time_for_day(events)
-
-    # calculate how much potential availability window there is
-    window_time = latest - earliest
-
-    # there's no availabiltity for the day if the busy_time = window_time
-    if window_time == busy_time:
-        return availability
-
-    # build the list of availability between events
-    for event in events:
-        event_start = event.get('start')
-        event_start = datetime.fromisoformat(event_start).replace(tzinfo=tz)
-
-        event_end = event.get('end')
-        event_end = datetime.fromisoformat(event_end).replace(tzinfo=tz)
-
-        prev_event = event.get('prev')
-        next_event = event.get('next')
-
-        if prev_event:
-            prev_end = datetime.fromisoformat(prev_event.get('end'))
-            diff = event_start - prev_end
-            if diff >= smallest:
-                availability.append(createSlot(prev_end, event_start))
-
-        else:
-            diff = event_start - earliest
-
-            if diff > zero_time:
-                if event_start-earliest >= smallest:
-                    availability.append(createSlot(earliest, event_start))
-            else:
-                if latest - event_end >= smallest:
-                    availability.append(createSlot(event_end, latest))
-        
-        if not next_event:
-            if latest - event_end >= smallest:
-                availability.append(createSlot(event_end, latest))
-
-    return availability
-
-
 # returns a formatted date string
 def format_date(date):
     return date.strftime("%a, %b %-d")
@@ -262,7 +201,7 @@ def format_slots(availability):
             format_string = format_string.replace(':%M', '')
         strEnd = slot['end'].strftime(format_string).lower()
 
-        strAvail.append(f"{strStart}-{strEnd}")
+        strAvail.append(f"{strStart} - {strEnd}")
 
     return strAvail
 
@@ -367,8 +306,9 @@ def main():
                     st.write(format_date(day.get('date')))
                 with col2:
                     slots = format_slots(day.get('slots'))
-                    for slot in slots:
-                        st.write(slot)
+                    st.write(', '.join(slots))
+                    # for slot in slots:
+                    #     st.write(slot)
             # st.markdown('----')
     
     except Exception as e:
