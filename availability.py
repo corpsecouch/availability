@@ -102,8 +102,10 @@ def calc_busy_time_for_day(events):
 
 def calc_avail_for_day(date, earliest_time, latest_time, tz, smallest, events):
     # make sure the dates and times are adjusted for the timezone
-    earliest = datetime.combine(date=date, time=earliest_time, tzinfo=tz)
-    latest = datetime.combine(date=date, time=latest_time, tzinfo=tz)
+    # earliest = datetime.combine(date=date, time=earliest_time, tzinfo=tz)
+    # latest = datetime.combine(date=date, time=latest_time, tzinfo=tz)
+    earliest = datetime.combine(date=date, time=earliest_time).astimezone(tz)
+    latest = datetime.combine(date=date, time=latest_time).astimezone(tz)
 
     availability = []
     zero_time = timedelta(hours=0, minutes=0, seconds=0)
@@ -206,15 +208,7 @@ def format_slots(availability):
     return strAvail
 
 
-def get_availability(service, date_range, earliest_time, latest_time, tz, smallest):
-
-    dates = [
-        datetime.combine(date=date_range[0], time=earliest_time, tzinfo=tz),
-        datetime.combine(date=date_range[len(date_range)-1], time=latest_time, tzinfo=tz)
-    ]
-
-    # get all the busy events from the calendar for the range of dates
-    events = get_busy_events(service, dates, tz)
+def get_availability(events, date_range, earliest_time, latest_time, tz, smallest):
 
     availability = []
 
@@ -259,17 +253,35 @@ def main():
         # Authenticate and create the google calendar service
         service = get_google_calendar_service()
         
+        cal_list = service.calendarList().list().execute()
+        
+        cal_list_names = []
+        for cal in cal_list['items']:
+            cal_list_names.append(cal['summary'])
+
+        cal_primary = list(filter(lambda cal: 'primary' in cal, cal_list['items']))[0]
+        cal_primary_tz = ZoneInfo(cal_primary['timeZone'])
+        cal_primary_tz_name = datetime.now().replace(tzinfo=cal_primary_tz).tzname()
+
+        # todo: check for no primary calendar
+        # todo: check for mulitple primary calendars
+
+        # selected_calendars = st.multiselect("Calendars", cal_list_names, default=cal_primary['summary'])
+        # print(selected_calendars)
+
+
         col1, col2 = st.columns(2)
 
         with col2:
-            time_zone = st.selectbox("Time zone", [ZoneInfo('US/Eastern'), ZoneInfo('US/Central'), ZoneInfo('US/Mountain'), ZoneInfo('US/Pacific')])
-            earliest = st.time_input("Earliest Time", time(hour=9))
-            latest = st.time_input("Latest Time", time(hour=17))
+            time_zone = st.selectbox("As Time Zone", [ZoneInfo('US/Eastern'), ZoneInfo('US/Central'), ZoneInfo('US/Mountain'), ZoneInfo('US/Pacific')])
+            earliest = st.time_input("Earliest Time (" + cal_primary_tz_name + ")", time(hour=9, tzinfo=cal_primary_tz))
+            latest = st.time_input("Latest Time (" + cal_primary_tz_name + ")", time(hour=17, tzinfo=cal_primary_tz))
             at_least = st.time_input("At Least", time(minute=30))
-        
+
         date = datetime.now().replace(tzinfo=time_zone)# + timedelta(days=-3)
 
         with col1:
+            st.text_input(label="Calendar", value=cal_primary['summary'] + " (" + cal_primary_tz_name + ")", disabled=True)
             date_range = st.date_input(label="Dates", value=[date, date + timedelta(days=7)])
             include_weekends = st.toggle('Ignore Weekends')
             hide_empty = st.toggle("Hide Unavailable Days")
@@ -284,8 +296,24 @@ def main():
             next_date = date_range_start + timedelta(days=next)
             dates.append(next_date)
 
+
+        # get all the busy events from the calendar for the range of dates
+        events = get_busy_events(service, [
+            datetime.combine(date=date_range[0], time=earliest, tzinfo=time_zone),
+            datetime.combine(date=date_range[len(date_range)-1], time=latest, tzinfo=time_zone)
+        ], time_zone)
+
+
         # get availability
-        days = get_availability(service, dates, earliest, latest, time_zone, timedelta(hours=at_least.hour, minutes=at_least.minute, seconds=at_least.second))
+        # days = get_availability(service, dates, earliest, latest, time_zone, timedelta(hours=at_least.hour, minutes=at_least.minute, seconds=at_least.second))
+        days = get_availability(
+            events=events,
+            date_range=dates,
+            earliest_time=earliest,
+            latest_time=latest,
+            tz=time_zone,
+            smallest=timedelta(hours=at_least.hour, minutes=at_least.minute, seconds=at_least.second)
+        )
 
         st.divider()
 
